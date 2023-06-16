@@ -27,15 +27,31 @@ const factions = [
 	},
 	{
 		id: 2,
-		name: 'KCCO',
+		name: 'SF',
 		color: '#EE0000'
 	},
 	{
 		id: 0,
-		name: 'Paradeus',
+		name: 'KCCO',
 		color: '#FFEE00'
 	}
 ];
+
+// Because repeated array searches are disgusting and I don't want to write multiple functions to grab a color or compare IDs.
+const faction_mob = factions.reduce((mob, faction) => {
+	if (faction.name == 'SF')
+		mob[faction.name] = {
+			id: 1,
+		};
+	else if (faction.name == 'KCCO')
+		mob[faction.name] = {
+			id: 2,
+		};
+	else
+		mob[faction.name] = faction;
+	mob[faction.id] = faction;
+	return mob;
+}, {});
 
 // Because repeated array searches are disgusting and I don't want to write multiple functions to grab a color or compare IDs.
 const faction_map = factions.reduce((map, faction) => {
@@ -47,9 +63,10 @@ const faction_map = factions.reduce((map, faction) => {
 // Transform the data into something a little more usable.
 const data = raw_data.map((node) => {
 	node.route = node.route.split(',');
+	node.map_route = node.map_route.split(',');
 	node.friendly_id = id_map[node.id];
 	node.coordinates = [node.coordinator_x, node.coordinator_y];
-	node.occupied = node.ally_team_id > 0 ? 2 : (node.enemy_team_id > 0 ? 1 : 0);
+	node.occupied = node.ally_team_id > 0 ? faction_mob.KCCO.id : (node.enemy_team_id > 0 ? faction_mob.SF.id : 0);
 	node.occupied = node.belong !== faction_map.GK.id ? node.occupied : 0;
 	node.ally_occupied = node.ally_team_id > 0 && node.belong === faction_map.GK.id ? 1 : 0;
 	node.state = 0;
@@ -59,7 +76,7 @@ const data = raw_data.map((node) => {
 
 // Because individual global variables are disgusting but we still need global application state because passing a bunch of config values as function parameters throughout the entire call stack is even more disgusting.
 const config = {
-	scale: 0.25,
+	scale: 1,
 	width: 0,
 	height: 0,
 	offset_x: 0,
@@ -190,11 +207,17 @@ function calculateArrowIncrements(from_x, from_y, to_x, to_y) {
 }
 
 function drawPath(node1, node2, is_one_way) {
-	let highlight = (node2.hasOwnProperty('from_node') && node2.from_node === node1) || (node1.hasOwnProperty('from_node') && node1.from_node === node2);
-	if(highlight && node1.hasOwnProperty('from_node') && node1.from_node === node2) {
+	let highlight_SF = (node2.hasOwnProperty('from_node_SF') && node2.from_node_SF === node1) || (node1.hasOwnProperty('from_node_SF') && node1.from_node_SF === node2);
+	if (highlight_SF && node1.hasOwnProperty('from_node_SF') && node1.from_node_SF === node2) {
 		let temp = node1;
 		node1 = node2;
-		node2 = node1;
+		node2 = temp;
+	}
+	let highlight_KCCO = (node2.hasOwnProperty('from_node_KCCO') && node2.from_node_KCCO === node1) || (node1.hasOwnProperty('from_node_KCCO') && node1.from_node_KCCO === node2);
+	if (highlight_KCCO && node1.hasOwnProperty('from_node_KCCO') && node1.from_node_KCCO === node2) {
+		let temp = node1;
+		node1 = node2;
+		node2 = temp;
 	}
 
 	let from_x = calculateX(node1.coordinates[0]);
@@ -210,7 +233,7 @@ function drawPath(node1, node2, is_one_way) {
 	ctx.beginPath();
 
 	ctx.lineWidth = 20 * config.scale;
-	ctx.strokeStyle = highlight ? '#00DD00' : '#DDDDDD';
+	ctx.strokeStyle = highlight_SF ? '#EE0000' : highlight_KCCO ? '#FFEE00' : '#DDDDDD';
 	ctx.moveTo(from_x, from_y);
 	ctx.lineTo(to_x, to_y);
 
@@ -220,19 +243,21 @@ function drawPath(node1, node2, is_one_way) {
 	let [x_inc, y_inc] = calculateArrowIncrements(from_x, from_y, to_x, to_y);
 
 	// Draws a one-way path if necessary.
-	if(is_one_way || highlight) {
+	if (is_one_way || highlight_SF || highlight_KCCO) {
 		ctx.lineWidth = 15 * config.scale;
 
 		let next_x = to_x;
 		let next_y = to_y;
 
-		if(highlight) {
+		if (highlight_SF || highlight_KCCO) {
 			x_inc *= 3;
 			y_inc *= 3;
 		}
 
 		// A one-way path is basically just a bunch of arrow heads along the length of the path. Just place them within a reasonable distance of each other until you've covered the path.
-		while((next_x >= from_x && next_x <= to_x) || (next_x <= from_x && next_x >= to_x)) {
+		//while((next_x >= from_x && next_x <= to_x) || (next_x <= from_x && next_x >= to_x)) { Numbers you forgot perfectly vertical lines
+		while (from_x != to_x && ((next_x >= from_x && next_x <= to_x) || (next_x <= from_x && next_x >= to_x)) ||
+		  from_y != to_y && ((next_y <= from_y && next_y >= to_y) || (next_y >= from_y && next_y <= to_y))) {
 			ctx.stroke();
 
 			ctx.beginPath();
@@ -295,8 +320,9 @@ function updateCanvas(nodes) {
 
 		// Occupation indicator.
 		if(node.occupied) {
-			ctx.arc(calculateX(node.coordinates[0]) + config.radius, calculateY(node.coordinates[1]) - 0.8*config.radius, 0.2 * node.occupied * config.radius, 0, 2 * Math.PI, false);
-			ctx.fillStyle = node.belong === faction_map.Paradeus.id ? faction_map.Paradeus.color : faction_map.KCCO.color;
+			ctx.arc(calculateX(node.coordinates[0]) + config.radius, calculateY(node.coordinates[1]) - 0.8*config.radius, 0.2 * 2 * config.radius, 0, 2 * Math.PI, false);
+			//ctx.fillStyle = node.belong === faction_map.SF.id ? faction_map.SF.color : faction_map.KCCO.color;
+			ctx.fillStyle = node.occupied === faction_mob.SF.id ? faction_map.SF.color : faction_map.KCCO.color;
 			ctx.fill();
 			ctx.stroke();
 			ctx.beginPath();
@@ -304,7 +330,7 @@ function updateCanvas(nodes) {
 
 		// Ally occupation indicator.
 		if(node.ally_occupied) {
-			ctx.arc(calculateX(node.coordinates[0]) - config.radius, calculateY(node.coordinates[1]) - 0.8*config.radius, 0.2 * node.ally_occupied * config.radius, 0, 2 * Math.PI, false);
+			ctx.arc(calculateX(node.coordinates[0]) - config.radius, calculateY(node.coordinates[1]) - 0.8*config.radius, 0.2 * 2 * node.ally_occupied * config.radius, 0, 2 * Math.PI, false);
 			ctx.fillStyle = faction_map.GK.color;
 			ctx.fill();
 			ctx.stroke();
@@ -406,6 +432,18 @@ function updateCanvas(nodes) {
 	}
 }
 
+function resizeCanvas() {
+	const ratio = 4;
+	const canvas = document.getElementById('draw-space');
+	canvas.style.width = document.body.clientWidth + "px";
+	canvas.style.height = document.body.clientHeight + "px";
+	canvas.width = Math.floor(document.body.clientWidth * ratio);
+  canvas.height = Math.floor(document.body.clientHeight * ratio);
+
+	const ctx = canvas.getContext('2d');
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+}
+
 function getCursorPosition(canvas, event) {
 	const rect = canvas.getBoundingClientRect();
 	const x = event.clientX - rect.left;
@@ -414,21 +452,59 @@ function getCursorPosition(canvas, event) {
 	return [x, y];
 }
 
-function calculateNodePriority(nodes) {
-	// Assumed: Allied heliports are highest priority.
-	for(let node of nodes) {
-		if(node.belong === faction_map.GK.id) {
-			if(node_types[node.type] === 'heliport' || node_types[node.type] === 'heavy heliport') {
+function calculateNodePriority(mob, nodes) {
+	// Assumed: Allied heliports are highest priority. Numbers pls this was established as wrong a long time ago
+	for (let node of nodes) {
+		if (node.belong === faction_map.GK.id) {
+			if (node_types[node.type] === 'heliport' || node_types[node.type] === 'heavy heliport') { 
 				return node;
 			}
 		}
+		if (mob === faction_mob.SF.id) {//SF Mob
+			if (node.belong === faction_map.KCCO.id) {
+				if (node_types[node.type] === 'heliport' || node_types[node.type] === 'heavy heliport') {
+					return node;
+				}
+			}
+		}
+		else {//KCCO Mob
+			if (node.belong === faction_map.SF.id) {
+				if (node_types[node.type] === 'heliport' || node_types[node.type] === 'heavy heliport') {
+					return node;
+				}
+			}
+        }
 	}
+	// Radars have lower priority than helis as observed in PR vod but higher prio than regular nodes as seen in Singu+
+	for (let node of nodes) {
+		if (node.special_eft === 1) {
+			if (node.belong === faction_map.GK.id) {
+				return node;
+			}
+			else if (mob === faction_mob.SF.id && node.belong === faction_map.KCCO.id) {
+				return node;
+			}
+			else if (mob === faction_mob.KCCO.id && node.belong === faction_map.SF.id) {
+				return node;
+            }
+        }
+    }
 
-	// Assumed: If no allied heliports, then allied nodes are highest priority.
+	// Assumed: If no allied heliports, then allied nodes are highest priority. Numbers pls this was established as wrong a long time ago
 	for(let node of nodes) {
 		if(node.belong === faction_map.GK.id) {
 			return node;
 		}
+		if (mob === faction_mob.SF.id) {//SF Mob
+			if (node.belong === faction_map.KCCO.id) {
+				return node;
+			}
+		}
+		else {//KCCO Mob
+			if (node.belong === faction_map.SF.id) {
+				return node;
+			}
+        }
 	}
 
 	// If for whatever reason the first two passes failed, return the first node available. Should never happen, but you never know.
@@ -439,7 +515,13 @@ function calculateNextNodeMove(node, nodes) {
 	// This function body could easily be replaced or re-adapted for lots of other AI behaviors. For now, this is being used for "expand" AI behavior from the KCCO faction only.
 
 	// KCCO are greedy and lazy. If they don't already own the land they're standing on, they'll plant their asses on it and claim it as their own.
-	if(node.belong !== faction_map.KCCO.id) {
+	//if(node.belong !== faction_map.KCCO.id) {
+	//	return node;
+	//}
+	if (node.belong !== faction_map.KCCO.id && node.occupied === faction_mob.KCCO.id) {
+		return node;
+	}
+	if (node.belong !== faction_map.SF.id && node.occupied === faction_mob.SF.id) {
 		return node;
 	}
 
@@ -468,7 +550,7 @@ function calculateNextNodeMove(node, nodes) {
 					let sibling_node = node_map[sibling_id];
 
 					// If not directly adjacent and occupied, then add the node to our list of candidates so we can check if it's a winner later.
-					if(!(is_first_pass && sibling_node.occupied)) {
+					if (!(is_first_pass && sibling_node.occupied === node.occupied)) {//Check not occupied by same faction
 						candidate_nodes.push(sibling_node);
 					}
 
@@ -484,12 +566,15 @@ function calculateNextNodeMove(node, nodes) {
 
 		// Now we filter out candidates that have already been capped by KCCO.
 		let valid_candidates = candidate_nodes.filter((candidate) => {
-			return candidate.belong === faction_map.GK.id;
+			if (node.occupied === faction_mob.SF.id)
+				return candidate.belong === faction_map.GK.id || candidate.belong === faction_map.KCCO.id;
+			if (node.occupied === faction_mob.KCCO.id)
+				return candidate.belong === faction_map.GK.id || candidate.belong === faction_map.SF.id;
 		});
 
 		// If we have any valid candidates, then we can proceed with node selection, otherwise we need to take another pass at the next BFS depth.
-		if(valid_candidates.length > 0) {
-			destination = calculateNodePriority(valid_candidates);
+		if (valid_candidates.length > 0) {
+			destination = calculateNodePriority(node.occupied, valid_candidates);
 		} else {
 			nodes_visited = candidate_nodes;
 		}
@@ -514,10 +599,40 @@ function calculateNextNodeMove(node, nodes) {
 	return destination;
 }
 
+//Trigger surround caps at the start of the respective faction's turns
+function calculateSurroundCaptures(data_set, faction_id) {
+	const node_map = {};
+	for (let node of data_set) {
+		node_map[node.id] = node;
+	}
+
+	data_set.filter((node) => node.belong !== faction_id).map((node) => {
+		let fail = false;
+		for (let adjacent of node.map_route) {
+			if (node_map[adjacent].belong !== faction_id) {
+				fail = true;
+				break;
+            }
+		}
+		if (!fail) {
+			node.belong = faction_id;
+        }
+	});
+}
+
+function CaptureGnK(data_set) {
+	data_set.filter((node) => node.ally_occupied).map((node) => {
+		node.belong = faction_map.GK.id;
+	});
+}
+
 function calculateEnemyMoveTurn(data_set) {
+	//Capture nodes with GnK teams first
+	CaptureGnK(data_set);
 	// First, spawn mobs on helipads.
-	data_set.filter((node) => node.belong === faction_map.KCCO.id && (node.type === 3 || node.type === 7) && !node.occupied && config.no_spawn_helipads.indexOf(node.friendly_id) < 0).map((node) => {
-		let occupied = 1;
+	data_set.filter((node) => (node.belong === faction_map.KCCO.id || node.belong === faction_map.SF.id) && (node.type === 3 || node.type === 7) &&
+	  !node.occupied && config.no_spawn_helipads.indexOf(node.friendly_id) < 0).map((node) => {
+		let occupied = node.belong === faction_map.SF.id ? faction_mob.SF.id : faction_mob.KCCO.id;
 		if(node.active_cycle) {
 			let [closed, open] = node.active_cycle.split(',').map((number) => parseInt(number));
 			let current_turn = 0;
@@ -529,8 +644,8 @@ function calculateEnemyMoveTurn(data_set) {
 				}
 
 				current_turn += open;
-				if(current_turn >= config.turn) {
-					occupied = 1;
+				if (current_turn >= config.turn) {
+					occupied = node.belong === faction_map.SF.id ? faction_mob.SF.id : faction_mob.KCCO.id;
 					break;
 				}
 			}
@@ -539,23 +654,47 @@ function calculateEnemyMoveTurn(data_set) {
 		node.occupied = occupied;
 	});
 
-	// First pass, calculate normal enemy mob movement. Second pass, calculate deathstack movement.
-	for(let enemy_type of [1, 2]) {
+	// First pass, calculate ~~normal enemy mob movement. Second pass, calculate deathstack movement.~~ SF movement then KCCO
+	for (let enemy_type of [faction_mob.SF.id, faction_mob.KCCO.id]) {
 		let enemies_of_type = data_set.filter((node) => {
-			return node.belong === faction_map.KCCO.id && node.occupied === enemy_type && node.state === 0;
+			return node.occupied === enemy_type && node.state === 0;
 		});
+
+		if (enemy_type === faction_mob.SF.id)
+			calculateSurroundCaptures(data_set, faction_map.SF.id);
+		else
+			calculateSurroundCaptures(data_set, faction_map.KCCO.id);
+		//Gather all of the nodes that will get capped at the end of the faction's turn
+		let cappedNodes = [];
 
 		for(let node of enemies_of_type) {
 			let target_node = calculateNextNodeMove(node, data_set);
 
-			if(target_node === null) {
+			if (target_node === null) {
 				continue;
 			}
 
-			target_node.occupied = node.occupied;
-			node.occupied = 0;
-			target_node.from_node = node;
+			if (target_node != node) {
+				target_node.occupied = node.occupied;
+				node.occupied = 0;
+				if (target_node.occupied === faction_mob.SF.id)
+					target_node.from_node_SF = node;
+				else
+					target_node.from_node_KCCO = node;
+			}
+			//add to the auto capture list
+			cappedNodes.push(target_node);
 		}
+
+		//auto capture nodes at the end of faction's turn
+		for (var i = 0; i < cappedNodes.length; i++) {
+			if (cappedNodes[i].occupied === faction_mob.SF.id)
+				cappedNodes[i].belong = faction_map.SF.id;
+			else
+				cappedNodes[i].belong = faction_map.KCCO.id;
+		}
+		//clear array
+		cappedNodes.length = 0;
 	}
 }
 
@@ -571,6 +710,7 @@ window.addEventListener('DOMContentLoaded', (event) => {
 		importMapState(initial_state);
 	}
 
+	resizeCanvas();
 	updateCanvas(data);
 
 	canvas.addEventListener('mousedown', function(e) {
@@ -641,12 +781,17 @@ window.addEventListener('DOMContentLoaded', (event) => {
 					saveMapState();
 					calculateEnemyMoveTurn(data);
 					for(let node of data) {
-						if(node.hasOwnProperty('from_node')) {
-							node.from_node = null;
-							delete node.from_node;
+						if (node.hasOwnProperty('from_node_SF')) {
+							node.from_node_SF = null;
+							delete node.from_node_SF;
+						}
+						if (node.hasOwnProperty('from_node_KCCO')) {
+							node.from_node_KCCO = null;
+							delete node.from_node_KCCO;
 						}
 					}
-
+					//Surround cap at the start of your turn
+					calculateSurroundCaptures(data, faction_map.GK.id);
 					config.turn++;
 					if(config.turn > 8) {
 						config.turn = 1;

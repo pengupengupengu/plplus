@@ -26,32 +26,16 @@ const factions = [
 		color: '#00EEFF'
 	},
 	{
-		id: 2,
+		id: 0,
 		name: 'SF',
-		color: '#EE0000'
+		color: '#FFEE00'
 	},
 	{
-		id: 0,
+		id: 2,
 		name: 'KCCO',
-		color: '#FFEE00'
+		color: '#EE0000'
 	}
 ];
-
-// Because repeated array searches are disgusting and I don't want to write multiple functions to grab a color or compare IDs.
-const faction_mob = factions.reduce((mob, faction) => {
-	if (faction.name == 'SF')
-		mob[faction.name] = {
-			id: 1,
-		};
-	else if (faction.name == 'KCCO')
-		mob[faction.name] = {
-			id: 2,
-		};
-	else
-		mob[faction.name] = faction;
-	mob[faction.id] = faction;
-	return mob;
-}, {});
 
 // Because repeated array searches are disgusting and I don't want to write multiple functions to grab a color or compare IDs.
 const faction_map = factions.reduce((map, faction) => {
@@ -66,8 +50,16 @@ const data = raw_data.map((node) => {
 	node.map_route = node.map_route.split(',');
 	node.friendly_id = id_map[node.id];
 	node.coordinates = [node.coordinator_x, node.coordinator_y];
-	node.occupied = node.ally_team_id > 0 ? faction_mob.KCCO.id : (node.enemy_team_id > 0 ? faction_mob.SF.id : 0);
-	node.occupied = node.belong !== faction_map.GK.id ? node.occupied : 0;
+	node.occupied = null;
+	if (node.belong !== faction_map.GK.id) {
+		if (node.ally_team_id >= 6363045 && node.ally_team_id <= 6363048) {
+	  	node.occupied = faction_map.SF;
+	  } else if (node.ally_team_id > 0) {
+	    node.occupied = {is_deathstack: true, ...faction_map.KCCO};
+		} else if (node.enemy_team_id > 0) {
+	    node.occupied = faction_map.KCCO;
+	  }
+	}
 	node.ally_occupied = node.ally_team_id > 0 && node.belong === faction_map.GK.id ? 1 : 0;
 	node.state = 0;
 
@@ -146,13 +138,13 @@ function redoMapStateChange() {
 }
 
 function exportMapState() {
-	return config.turn + '::' + data.map((node) => [id_map[node.id], node.belong, node.occupied, node.ally_occupied, node.state].join(':')).join(',');
+	return config.turn + '::' + data.map((node) => [id_map[node.id], node.belong, node.occupied ? JSON.stringify(node.occupied) : "", node.ally_occupied, node.state].join(':')).join(',');
 }
 
 function importMapState(state) {
 	let node_map = {};
 	for(let node of data) {
-		node.occupied = 0;
+		node.occupied = null;
 		node.ally_occupied = 0;
 		node.state = 0;
 		node_map[id_map[node.id]] = node;
@@ -169,7 +161,7 @@ function importMapState(state) {
 		let [node_name, owner, occupation, ally_occupation, node_emp_state] = node_state.split(':');
 		node_name = node_name.toUpperCase();
 		owner = parseInt(owner);
-		occupation = parseInt(occupation);
+		occupation = occupation ? JSON.parse(occupation) : null;
 		ally_occupation = parseInt(ally_occupation || 0);
 		node_emp_state = parseInt(node_emp_state || 0)
 
@@ -233,7 +225,7 @@ function drawPath(node1, node2, is_one_way) {
 	ctx.beginPath();
 
 	ctx.lineWidth = 20 * config.scale;
-	ctx.strokeStyle = highlight_SF ? '#EE0000' : highlight_KCCO ? '#FFEE00' : '#DDDDDD';
+	ctx.strokeStyle = highlight_SF ? '#FFEE00' : highlight_KCCO ? '#EE0000' : '#DDDDDD';
 	ctx.moveTo(from_x, from_y);
 	ctx.lineTo(to_x, to_y);
 
@@ -320,12 +312,17 @@ function updateCanvas(nodes) {
 
 		// Occupation indicator.
 		if(node.occupied) {
-			ctx.arc(calculateX(node.coordinates[0]) + config.radius, calculateY(node.coordinates[1]) - 0.8*config.radius, 0.2 * 2 * config.radius, 0, 2 * Math.PI, false);
+			const radius = config.radius * (node.occupied.is_deathstack ? 1.5 : 1);
+			ctx.arc(calculateX(node.coordinates[0]) + config.radius, calculateY(node.coordinates[1]) - 0.8 * config.radius, 0.2 * 2 * radius, 0, 2 * Math.PI, false);
 			//ctx.fillStyle = node.belong === faction_map.SF.id ? faction_map.SF.color : faction_map.KCCO.color;
-			ctx.fillStyle = node.occupied === faction_mob.SF.id ? faction_map.SF.color : faction_map.KCCO.color;
+			ctx.fillStyle = node.occupied.id === faction_map.SF.id ? faction_map.SF.color : faction_map.KCCO.color;
+			if (!node.occupied.is_deathstack) {
+				ctx.globalAlpha = 0.6;
+			}
 			ctx.fill();
 			ctx.stroke();
 			ctx.beginPath();
+			ctx.globalAlpha = 1;
 		}
 
 		// Ally occupation indicator.
@@ -460,7 +457,7 @@ function calculateNodePriority(mob, nodes) {
 				return node;
 			}
 		}
-		if (mob === faction_mob.SF.id) {//SF Mob
+		if (mob === faction_map.SF.id) {//SF Mob
 			if (node.belong === faction_map.KCCO.id) {
 				if (node_types[node.type] === 'heliport' || node_types[node.type] === 'heavy heliport') {
 					return node;
@@ -481,10 +478,10 @@ function calculateNodePriority(mob, nodes) {
 			if (node.belong === faction_map.GK.id) {
 				return node;
 			}
-			else if (mob === faction_mob.SF.id && node.belong === faction_map.KCCO.id) {
+			else if (mob === faction_map.SF.id && node.belong === faction_map.KCCO.id) {
 				return node;
 			}
-			else if (mob === faction_mob.KCCO.id && node.belong === faction_map.SF.id) {
+			else if (mob === faction_map.KCCO.id && node.belong === faction_map.SF.id) {
 				return node;
             }
         }
@@ -495,7 +492,7 @@ function calculateNodePriority(mob, nodes) {
 		if(node.belong === faction_map.GK.id) {
 			return node;
 		}
-		if (mob === faction_mob.SF.id) {//SF Mob
+		if (mob === faction_map.SF.id) {//SF Mob
 			if (node.belong === faction_map.KCCO.id) {
 				return node;
 			}
@@ -518,10 +515,10 @@ function calculateNextNodeMove(node, nodes) {
 	//if(node.belong !== faction_map.KCCO.id) {
 	//	return node;
 	//}
-	if (node.belong !== faction_map.KCCO.id && node.occupied === faction_mob.KCCO.id) {
+	if (node.belong !== faction_map.KCCO.id && node.occupied.id === faction_map.KCCO.id) {
 		return node;
 	}
-	if (node.belong !== faction_map.SF.id && node.occupied === faction_mob.SF.id) {
+	if (node.belong !== faction_map.SF.id && node.occupied.id === faction_map.SF.id) {
 		return node;
 	}
 
@@ -550,7 +547,7 @@ function calculateNextNodeMove(node, nodes) {
 					let sibling_node = node_map[sibling_id];
 
 					// If not directly adjacent and occupied, then add the node to our list of candidates so we can check if it's a winner later.
-					if (!(is_first_pass && sibling_node.occupied === node.occupied)) {//Check not occupied by same faction
+					if (!(is_first_pass && sibling_node.occupied?.id === node.occupied?.id)) {//Check not occupied by same faction
 						candidate_nodes.push(sibling_node);
 					}
 
@@ -566,9 +563,9 @@ function calculateNextNodeMove(node, nodes) {
 
 		// Now we filter out candidates that have already been capped by KCCO.
 		let valid_candidates = candidate_nodes.filter((candidate) => {
-			if (node.occupied === faction_mob.SF.id)
+			if (node.occupied.id === faction_map.SF.id)
 				return candidate.belong === faction_map.GK.id || candidate.belong === faction_map.KCCO.id;
-			if (node.occupied === faction_mob.KCCO.id)
+			if (node.occupied.id === faction_map.KCCO.id)
 				return candidate.belong === faction_map.GK.id || candidate.belong === faction_map.SF.id;
 		});
 
@@ -632,20 +629,20 @@ function calculateEnemyMoveTurn(data_set) {
 	// First, spawn mobs on helipads.
 	data_set.filter((node) => (node.belong === faction_map.KCCO.id || node.belong === faction_map.SF.id) && (node.type === 3 || node.type === 7) &&
 	  !node.occupied && config.no_spawn_helipads.indexOf(node.friendly_id) < 0).map((node) => {
-		let occupied = node.belong === faction_map.SF.id ? faction_mob.SF.id : faction_mob.KCCO.id;
+		let occupied = node.belong === faction_map.SF.id ? faction_map.SF.id : faction_map.KCCO.id;
 		if(node.active_cycle) {
 			let [closed, open] = node.active_cycle.split(',').map((number) => parseInt(number));
 			let current_turn = 0;
 			while(true) {
 				current_turn += closed;
 				if(current_turn >= config.turn) {
-					occupied = 0;
+					occupied = null;
 					break;
 				}
 
 				current_turn += open;
 				if (current_turn >= config.turn) {
-					occupied = node.belong === faction_map.SF.id ? faction_mob.SF.id : faction_mob.KCCO.id;
+					occupied = node.belong === faction_map.SF.id ? faction_map.SF : faction_map.KCCO;
 					break;
 				}
 			}
@@ -655,12 +652,12 @@ function calculateEnemyMoveTurn(data_set) {
 	});
 
 	// First pass, calculate ~~normal enemy mob movement. Second pass, calculate deathstack movement.~~ SF movement then KCCO
-	for (let enemy_type of [faction_mob.SF.id, faction_mob.KCCO.id]) {
+	for (let enemy_type of [faction_map.KCCO, {is_deathstack: true, ...faction_map.KCCO}]) {
 		let enemies_of_type = data_set.filter((node) => {
-			return node.occupied === enemy_type && node.state === 0;
+			return node.occupied?.id === enemy_type.id && node.occupied?.is_deathstack === enemy_type.is_deathstack && node.state === 0;
 		});
 
-		if (enemy_type === faction_mob.SF.id)
+		if (enemy_type === faction_map.SF.id)
 			calculateSurroundCaptures(data_set, faction_map.SF.id);
 		else
 			calculateSurroundCaptures(data_set, faction_map.KCCO.id);
@@ -676,8 +673,8 @@ function calculateEnemyMoveTurn(data_set) {
 
 			if (target_node != node) {
 				target_node.occupied = node.occupied;
-				node.occupied = 0;
-				if (target_node.occupied === faction_mob.SF.id)
+				node.occupied = null;
+				if (target_node.occupied.id === faction_map.SF.id)
 					target_node.from_node_SF = node;
 				else
 					target_node.from_node_KCCO = node;
@@ -688,7 +685,7 @@ function calculateEnemyMoveTurn(data_set) {
 
 		//auto capture nodes at the end of faction's turn
 		for (var i = 0; i < cappedNodes.length; i++) {
-			if (cappedNodes[i].occupied === faction_mob.SF.id)
+			if (cappedNodes[i].occupied.id === faction_map.SF.id)
 				cappedNodes[i].belong = faction_map.SF.id;
 			else
 				cappedNodes[i].belong = faction_map.KCCO.id;

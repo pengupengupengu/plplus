@@ -55,7 +55,7 @@ const data = raw_data.map((node) => {
 		if (node.ally_team_id >= 6363045 && node.ally_team_id <= 6363048) {
 	  	node.occupied = faction_map.SF;
 	  } else if (node.ally_team_id > 0) {
-	    node.occupied = {is_deathstack: true, ...faction_map.KCCO};
+	    node.occupied = {is_deathstack: true, mob_id: node.ally_team_id, ...faction_map.KCCO};
 		} else if (node.enemy_team_id > 0) {
 	    node.occupied = faction_map.KCCO;
 	  }
@@ -225,7 +225,7 @@ function drawPath(node1, node2, is_one_way) {
 	ctx.beginPath();
 
 	ctx.lineWidth = 20 * config.scale;
-	ctx.strokeStyle = highlight_SF ? '#FFEE00' : highlight_KCCO ? '#EE0000' : '#DDDDDD';
+	ctx.strokeStyle = highlight_KCCO ? '#00DD00' : '#DDDDDD';// highlight_SF ? '#FFEE00' : highlight_KCCO ? '#EE0000' : '#DDDDDD';
 	ctx.moveTo(from_x, from_y);
 	ctx.lineTo(to_x, to_y);
 
@@ -312,17 +312,23 @@ function updateCanvas(nodes) {
 
 		// Occupation indicator.
 		if(node.occupied) {
-			const radius = config.radius * (node.occupied.is_deathstack ? 1.5 : 1);
-			ctx.arc(calculateX(node.coordinates[0]) + config.radius, calculateY(node.coordinates[1]) - 0.8 * config.radius, 0.2 * 2 * radius, 0, 2 * Math.PI, false);
-			//ctx.fillStyle = node.belong === faction_map.SF.id ? faction_map.SF.color : faction_map.KCCO.color;
+			const x = calculateX(node.coordinates[0]) + config.radius;
+			const y = calculateY(node.coordinates[1]) - 0.8 * config.radius;
 			ctx.fillStyle = node.occupied.id === faction_map.SF.id ? faction_map.SF.color : faction_map.KCCO.color;
-			if (!node.occupied.is_deathstack) {
+			if (node.occupied.is_deathstack) {
+				let id_string = ("0" + node.occupied.mob_id % 100).substr(-2);
+		  	ctx.font = Math.floor(0.8 * config.radius) + 'pt Arial';
+				ctx.strokeText(id_string, x, y);
+				ctx.fillText(id_string, x, y);
+			} else {
+				const radius = config.radius * (node.occupied.is_deathstack ? 1.5 : 1);
+				ctx.arc(x, y, 0.2 * 2 * radius, 0, 2 * Math.PI, false);
 				ctx.globalAlpha = 0.6;
+				ctx.fill();
+				ctx.stroke();
+				ctx.beginPath();
+				ctx.globalAlpha = 1;
 			}
-			ctx.fill();
-			ctx.stroke();
-			ctx.beginPath();
-			ctx.globalAlpha = 1;
 		}
 
 		// Ally occupation indicator.
@@ -651,16 +657,13 @@ function calculateEnemyMoveTurn(data_set) {
 		node.occupied = occupied;
 	});
 
+  calculateSurroundCaptures(data_set, faction_map.KCCO.id);
 	// First pass, calculate ~~normal enemy mob movement. Second pass, calculate deathstack movement.~~ SF movement then KCCO
 	for (let enemy_type of [faction_map.KCCO, {is_deathstack: true, ...faction_map.KCCO}]) {
 		let enemies_of_type = data_set.filter((node) => {
 			return node.occupied?.id === enemy_type.id && node.occupied?.is_deathstack === enemy_type.is_deathstack && node.state === 0;
 		});
 
-		if (enemy_type === faction_map.SF.id)
-			calculateSurroundCaptures(data_set, faction_map.SF.id);
-		else
-			calculateSurroundCaptures(data_set, faction_map.KCCO.id);
 		//Gather all of the nodes that will get capped at the end of the faction's turn
 		let cappedNodes = [];
 
